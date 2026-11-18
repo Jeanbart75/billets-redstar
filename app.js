@@ -353,6 +353,7 @@
     }
     if (s.kind === 'wait') return 'Tu es <b>n° ' + s.waitPos + '</b> en liste d\'attente. Tu passes dès qu\'une place se libère.';
     if (s.isSub && !st.frozen) return 'Tu n\'as pas encore déclaré tes places pour ce match : tant que ce n\'est pas fait, elles ne comptent pas.';
+    if (s.isSub && st.frozen) return 'Tu n\'avais pas déclaré de places pour ce match. Si tu en as déjà acheté, ajoute-les ci-dessous.';
     return st.frozen ? 'Tu n\'as pas de place pour ce match.' : 'Tu n\'as pas demandé de place.';
   }
 
@@ -383,6 +384,25 @@
       '<button class="btn-primary" type="submit"' + (left > 0 ? '' : ' disabled') + '>Ajouter</button></form></div>';
   }
 
+  function boughtForm(st) {
+    var mid = esc(st.match.id);
+    var bought = st.seats.filter(function (x) { return x.subId === me && !x.season && !x.refunded; }).length;
+    var left = R.QUOTA - bought;
+    var choices = data.members.filter(function (m) {
+      if (m.id === me || st.confirms[m.id]) return false;
+      var k = R.personStatus(st, m.id).kind;
+      return k === 'none' || k === 'wait';
+    });
+    return '<div class="guest-box"><h3>Places déjà achetées</h3>' +
+      '<p class="muted">Tu as déjà acheté des places sur le site du club ? Inscris le prénom de chaque personne : un invité hors du groupe ou un membre du groupe. ' +
+      'La place s\'ajoute à ta liste, cochée « Acheté », et personne d\'autre ne bouge. ' +
+      (left > 0 ? bought + '/' + R.QUOTA + ' places achetées pour d\'autres (ta place d\'abonné est en plus).' : 'Tu as atteint ' + R.QUOTA + ' places achetées pour d\'autres.') + '</p>' +
+      '<form class="inline-form" data-form="bought" data-match="' + mid + '">' +
+      '<input type="text" name="name" list="names-bought-' + mid + '" placeholder="Prénom" autocomplete="off" required' + (left > 0 ? '' : ' disabled') + '>' +
+      '<button class="btn-primary" type="submit"' + (left > 0 ? '' : ' disabled') + '>Ajouter</button></form>' +
+      '<datalist id="names-bought-' + mid + '">' + choices.map(function (m) { return '<option value="' + esc(m.name) + '">'; }).join('') + '</datalist></div>';
+  }
+
   function sectionMe(st, ph) {
     var s = R.personStatus(st, me);
     var mid = esc(st.match.id);
@@ -403,8 +423,9 @@
           : btn('btn-primary', 'register', 'Je veux une place'));
       }
     } else if (ph === 'ouverte') {
+      if (s.isSub && (s.confirmed || s.kind === 'none' || s.kind === 'wait')) extraHtml += boughtForm(st);
       if (s.confirmed) {
-        lines.push('<span class="muted">Tes places sont figées depuis l\'ouverture : ' + plural(s.extra, 'place') + ' à acheter pour d\'autres. Tu peux encore dire si tu viens.</span>');
+        lines.push('<span class="muted">Ta liste est figée depuis l\'ouverture : ' + plural(s.extra, 'place') + ' pour d\'autres. Tu peux encore dire si tu viens.</span>');
         btns.push(s.absent
           ? btn('btn-primary', 'setAbsent', 'Finalement je viens', 'false', 'Reprendre ta place ? La personne qui l\'avait reprise repasse en tête de liste d\'attente.')
           : btn('', 'setAbsent', 'Je serai absent', 'true', releaseWarning(st, me, true)));
@@ -449,7 +470,7 @@
     var name;
     if (x.refunded) name = 'Place remboursée par le club';
     else if (!x.occupant) name = x.season ? 'Place d\'abonné libre <small>(gratuite)</small>' : 'Place libre';
-    else name = esc(nameOf(x.occupant)) + (x.own ? ' <small>(place d\'abonné)</small>' : x.season ? ' <span class="tag grey">place d\'abonné prêtée, gratuite</span>' : '') + (x.personal ? ' <span class="tag">son invité</span>' : '') + (x.pinned ? ' <span class="tag grey">choisi à la main</span>' : '');
+    else name = esc(nameOf(x.occupant)) + (x.own ? ' <small>(place d\'abonné)</small>' : x.season ? ' <span class="tag grey">place d\'abonné prêtée, gratuite</span>' : '') + (x.added ? ' <span class="tag">déjà achetée</span>' : x.personal ? ' <span class="tag">son invité</span>' : '') + (x.pinned ? ' <span class="tag grey">choisi à la main</span>' : '');
     var main = '<div class="seat-main"><span class="seat-name' + (x.occupant === me ? ' me' : '') + '">' + name + '</span>';
     if (ph !== 'terminee' && x.occupant && !x.own) {
       main += '<button class="x-btn" title="Retirer" aria-label="Retirer ' + esc(nameOf(x.occupant)) + '" data-act="ev" data-type="unregister" data-match="' + mid + '" data-member="' + esc(x.occupant) + '" data-confirm="' + esc((ph === 'avant' ? 'Retirer la demande de ' + nameOf(x.occupant) + ' ?' : nameOf(x.occupant) + ' se désiste. ' + releaseWarning(st, x.occupant))) + '">×</button>';
@@ -712,7 +733,7 @@
       send([{ type: 'declare', matchId: mid, memberId: me, value: dval }],
         'C\'est noté : ' + (extra ? 'tu achètes ' + plural(extra, 'place') + ' pour d\'autres' : 'tu n\'achètes aucune place') +
         (present ? '.' : ', et ta place d\'abonné est prêtée.'));
-    } else if (kind === 'guest' || kind === 'take') {
+    } else if (kind === 'guest' || kind === 'take' || kind === 'bought') {
       var name = R.cleanName(fd.get('name'));
       var existing = R.findMemberByName(data.members, name);
       var acts = [];
@@ -720,9 +741,11 @@
       if (!existing) acts.push({ type: 'addMember', id: pid, name: name });
       acts.push(kind === 'guest'
         ? { type: 'addGuest', matchId: mid, memberId: pid, target: me, by: me }
-        : { type: 'takeSeat', matchId: mid, memberId: pid, seatId: f.dataset.seat, by: me });
+        : kind === 'bought'
+          ? { type: 'addBought', matchId: mid, memberId: pid, target: me, by: me }
+          : { type: 'takeSeat', matchId: mid, memberId: pid, seatId: f.dataset.seat, by: me });
       var shown = existing ? existing.name : name;
-      send(acts, kind === 'guest' ? shown + ' prend une de tes places.' : shown + ' prend la place.');
+      send(acts, kind === 'guest' ? shown + ' prend une de tes places.' : kind === 'bought' ? 'Place achetée ajoutée pour ' + shown + '.' : shown + ' prend la place.');
     } else if (kind === 'opening') {
       send([{ type: 'setOpening', matchId: mid, value: fd.get('d') + ' ' + fd.get('t') }], 'Heure d\'ouverture enregistrée.');
     } else if (kind === 'schedule') {

@@ -328,6 +328,40 @@
     addGuest: 'La billetterie est ouverte : la liste est figée. Ton invité peut prendre une place libre s\'il y en a.'
   };
 
+  /**
+   * Après l'ouverture : un abonné déclare une place qu'il a déjà achetée sur le site du club,
+   * avec le nom de la personne. La place s'ajoute à sa liste, cochée « Acheté » ; personne d'autre ne bouge.
+   */
+  function addBought(st, ev) {
+    var host = ev.target, id = ev.memberId;
+    if (!isSub(st, host)) return 'Seul un abonné déclare des places achetées.';
+    if (!st.members[id]) return 'Personne inconnue.';
+    if (id === host) return 'Ta place d\'abonné est déjà acquise : inscris le prénom de la personne pour qui tu as acheté.';
+    if (st.confirms[id]) return nameOf(st, id) + ' est abonné et a déjà sa place d\'abonné.';
+    var other = seatOf(st, id);
+    if (other) return nameOf(st, id) + ' a déjà une place (achetée par ' + nameOf(st, other.subId) + ').';
+    var mine = seatsOfSub(st, host);
+    if (!st.confirms[host]) {
+      var hostSeat = seatOf(st, host);
+      if (hostSeat) return nameOf(st, host) + ' occupe déjà une place chez ' + nameOf(st, hostSeat.subId) + ' : retire-la d\'abord.';
+    }
+    var bought = mine.filter(function (x) { return !x.season && !x.refunded; }).length;
+    if (bought >= QUOTA) return 'Au plus ' + QUOTA + ' places achetées pour d\'autres (ta place d\'abonné est en plus).';
+    if (!st.confirms[host]) {
+      st.confirms[host] = { ts: ev.ts, order: ev.order };
+      st.extra[host] = 0;
+      var wh = st.waitlist.indexOf(host);
+      if (wh >= 0) st.waitlist.splice(wh, 1);
+      st.seats.push({ id: host + ':1', subId: host, occupant: host, own: true, season: true, personal: false, since: ev.ts, bought: false, paid: false, refunded: false });
+      mine = seatsOfSub(st, host);
+    }
+    var w = st.waitlist.indexOf(id);
+    if (w >= 0) st.waitlist.splice(w, 1);
+    st.seats.push({ id: host + ':' + (mine.length + 1), subId: host, occupant: id, own: false, season: false, personal: true, added: true, since: ev.ts, bought: true, paid: false, refunded: false });
+    st.extra[host] = Math.max(st.extra[host] || 0, bought + 1);
+    return null;
+  }
+
   /** "1:3" = présent, achète 3 places pour d'autres ; "0:4" = absent, achète 4 places. */
   function parseDeclaration(v) {
     var m = /^\s*(1|0|oui|non|true|false)\s*:\s*(\d)\s*$/i.exec(String(v == null ? '' : v));
@@ -438,6 +472,8 @@
 
       case 'takeSeat': case 'setBought': case 'setPaid': case 'setRefunded':
         return 'Possible seulement après l\'ouverture de la billetterie.';
+      case 'addBought':
+        return 'Avant l\'ouverture, déclare tes places avec « Présent ? » et « Places dispo en plus ».';
     }
     return 'Action inconnue.';
   }
@@ -455,6 +491,9 @@
         releaseSeat(st, seat, ev, 'desistement');
         return null;
       }
+
+      case 'addBought':
+        return addBought(st, ev);
 
       case 'declare': {
         var d = parseDeclaration(ev.value);
