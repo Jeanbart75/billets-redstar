@@ -240,14 +240,8 @@
   function plural(n, word) { return n + ' ' + word + (n > 1 ? 's' : ''); }
 
   function myChip(st) {
-    var s = R.personStatus(st, me);
-    if (s.kind === 'own') return '<span class="chip ok">Présent · ' + (s.extra ? 'tu achètes ' + plural(s.extra, 'place') : 'rien à acheter') + '</span>';
-    if (s.kind === 'seat' && s.season) return '<span class="chip ok">Ta place : place d\'abonné de ' + esc(nameOf(s.subId)) + ' (gratuite)</span>';
-    if (s.kind === 'seat') return '<span class="chip ok">Ta place : achetée par ' + esc(nameOf(s.subId)) + '</span>';
-    if (s.kind === 'wait') return '<span class="chip wait">En attente (n° ' + s.waitPos + ')</span>';
-    if (s.kind === 'absent') return '<span class="chip">Absent · ' + (s.extra ? 'tu achètes ' + plural(s.extra, 'place') : 'rien à acheter') + '</span>';
-    if (s.isSub && !st.frozen) return '<span class="chip wait">Places à déclarer</span>';
-    return '<span class="chip">Pas de place demandée</span>';
+    var c = R.statusChip(st, me);
+    return '<span class="chip' + (c.cls ? ' ' + c.cls : '') + '">' + esc(c.label) + '</span>';
   }
 
   function counterLine(st) {
@@ -327,7 +321,9 @@
         : '<div class="notice info">Heure d\'ouverture de la billetterie pas encore connue. Demandes libres, la répartition se recalcule en continu.</div>';
       html += openingForm(m);
     } else if (ph === 'ouverte') {
-      html += '<div class="notice alert"><b>Billetterie ouverte</b> depuis ' + esc(R.formatOpeningFr(m.opening) || 'le coup d\'envoi') + ' : liste figée. Chaque abonné achète les places de sa liste sur le site du club et coche « Acheté ». Un désistement est remplacé automatiquement par la liste d\'attente.</div>';
+      html += '<div class="notice alert"><b>Billetterie ouverte</b> depuis ' + esc(R.formatOpeningFr(m.opening) || 'le coup d\'envoi') + '. ' +
+        (isSub(me) ? 'Abonnés : achetez les places de votre liste sur le site du club, puis cochez « Acheté ». ' : '') +
+        'Si quelqu\'un se désiste, sa place passe au premier de la liste d\'attente.</div>';
     } else {
       html += '<div class="notice info">Billetterie fermée : match commencé, lecture seule. On peut encore cocher « Payé ».</div>';
     }
@@ -367,7 +363,7 @@
         (st.frozen ? '' : ' (Prévu : peut encore changer jusqu\'à l\'ouverture.)');
     }
     if (s.kind === 'seat') {
-      return 'Ta place : achetée par <b>' + esc(nameOf(s.subId)) + '</b>' + (s.personal ? ' (tu es son invité)' : s.pinned ? ' (choisi à la main)' : '') +
+      return (st.frozen && s.seat.bought ? 'Ta place a été achetée par <b>' : 'Ta place sera achetée par <b>') + esc(nameOf(s.subId)) + '</b>' + (s.personal ? ' (tu es son invité)' : s.pinned ? ' (choisi à la main)' : '') +
         '. Tu lui dois ' + R.PRICE + '&nbsp;€' + (st.frozen ? (s.seat.paid ? ' : <b>payé</b>.' : '.') : ' (prévu : l\'acheteur peut encore changer jusqu\'à l\'ouverture).');
     }
     if (s.kind === 'wait') return 'Tu es <b>n° ' + s.waitPos + '</b> en liste d\'attente. Tu passes dès qu\'une place se libère.';
@@ -405,21 +401,28 @@
 
   function boughtForm(st) {
     var mid = esc(st.match.id);
-    var bought = st.seats.filter(function (x) { return x.subId === me && !x.season && !x.refunded; }).length;
-    var left = R.QUOTA - bought;
+    var left = R.QUOTA - R.boughtCount(st, me);
+    var html = '<div class="guest-box bought-box"><h3>Places déjà achetées</h3>';
+    if (left <= 0) return html + '<p class="muted bought-msg">Tu as déjà acheté tes ' + R.QUOTA + ' places.</p></div>';
     var choices = data.members.filter(function (m) {
       if (m.id === me || st.confirms[m.id]) return false;
       var k = R.personStatus(st, m.id).kind;
       return k === 'none' || k === 'wait';
     });
-    return '<div class="guest-box"><h3>Places déjà achetées</h3>' +
-      '<p class="muted">Tu as déjà acheté des places sur le site du club ? Inscris le prénom de chaque personne : un invité hors du groupe ou un membre du groupe. ' +
-      'La place s\'ajoute à ta liste, cochée « Acheté », et personne d\'autre ne bouge. ' +
-      (left > 0 ? bought + '/' + R.QUOTA + ' places achetées pour d\'autres (ta place d\'abonné est en plus).' : 'Tu as atteint ' + R.QUOTA + ' places achetées pour d\'autres.') + '</p>' +
+    var nums = '';
+    for (var n = 1; n <= left; n++) nums += '<option value="' + n + '">' + n + '</option>';
+    return html +
+      '<p class="muted bought-msg">Tu as acheté des places sur le site du club ? Ajoute-les ici, avec ou sans prénom : elles seront cochées « Acheté ». ' +
+      'Il te reste ' + plural(left, 'place') + ' sur ' + R.QUOTA + '.</p>' +
+      '<label class="field">Avec un prénom</label>' +
       '<form class="inline-form" data-form="bought" data-match="' + mid + '">' +
-      '<input type="text" name="name" list="names-bought-' + mid + '" placeholder="Prénom" autocomplete="off" required' + (left > 0 ? '' : ' disabled') + '>' +
-      '<button class="btn-primary" type="submit"' + (left > 0 ? '' : ' disabled') + '>Ajouter</button></form>' +
-      '<datalist id="names-bought-' + mid + '">' + choices.map(function (m) { return '<option value="' + esc(m.name) + '">'; }).join('') + '</datalist></div>';
+      '<input type="text" name="name" list="names-bought-' + mid + '" placeholder="Prénom" autocomplete="off" required>' +
+      '<button class="btn-primary" type="submit">Ajouter</button></form>' +
+      '<datalist id="names-bought-' + mid + '">' + choices.map(function (m) { return '<option value="' + esc(m.name) + '">'; }).join('') + '</datalist>' +
+      '<label class="field">Sans prénom (le 1er en attente la prend)</label>' +
+      '<form class="inline-form" data-form="bought-seats" data-match="' + mid + '">' +
+      '<select name="n" aria-label="Nombre de places sans nom">' + nums + '</select>' +
+      '<button class="btn-primary" type="submit">Ajouter</button></form></div>';
   }
 
   function sectionMe(st, ph) {
@@ -450,8 +453,16 @@
           : btn('', 'setAbsent', 'Je serai absent', 'true', releaseWarning(st, me, true)));
       } else if (s.kind === 'seat' || s.kind === 'wait') {
         btns.push(btn('btn-danger', 'unregister', 'Je n\'en veux plus', undefined, s.kind === 'wait' ? 'Quitter la liste d\'attente ?' : releaseWarning(st)));
+      } else if (R.freeSeats(st).length && !s.isSub) {
+        var seen = {};
+        R.freeSeats(st).forEach(function (x) {
+          if (seen[x.subId]) return;
+          seen[x.subId] = true;
+          btns.push('<button class="btn-primary" data-act="ev" data-type="takeSeat" data-match="' + mid + '" data-member="' + esc(me) + '" data-seat="' + esc(x.id) + '">Prendre une place chez ' + esc(nameOf(x.subId)) + '</button>');
+        });
+        lines.push('Il reste ' + (R.freeSeats(st).length > 1 ? 'des places libres' : 'une place libre') + ' : prends-en une, tu paieras ' + R.PRICE + ' € à l\'abonné qui l\'a achetée' + (R.freeSeats(st).some(function (x) { return x.season; }) ? ' (une place d\'abonné prêtée est gratuite)' : '') + '.');
       } else if (R.freeSeats(st).length) {
-        lines.push('Il reste une place libre : tu peux la prendre plus bas.');
+        lines.push('Il reste une place libre : on peut la prendre plus bas.');
       }
     }
     return '<section class="card"><h2>Moi, ' + esc(nameOf(me)) + (s.isSub ? ' <span class="tag">abonné</span>' : '') + '</h2>' +
@@ -487,9 +498,12 @@
     var mid = esc(st.match.id);
     var cls = 'seat' + (!x.occupant && !x.refunded ? ' free-seat' : '') + (x.refunded ? ' refunded' : '');
     var name;
-    if (x.refunded) name = 'Place remboursée par le club';
+    if (x.refunded) name = 'Place rendue au club';
     else if (!x.occupant) name = x.season ? 'Place d\'abonné libre <small>(gratuite)</small>' : 'Place libre';
-    else name = esc(nameOf(x.occupant)) + (x.own ? ' <small>(place d\'abonné)</small>' : x.season ? ' <span class="tag grey">place d\'abonné prêtée, gratuite</span>' : '') + (x.added ? ' <span class="tag">déjà achetée</span>' : x.personal ? ' <span class="tag">son invité</span>' : '') + (x.pinned ? ' <span class="tag grey">choisi à la main</span>' : '');
+    else name = esc(nameOf(x.occupant)) + (x.own ? ' <small>(place d\'abonné)</small>' : x.season && !st.frozen ? ' <span class="tag grey">place d\'abonné prêtée, gratuite</span>' : '') + (x.personal && !x.added ? ' <span class="tag">son invité</span>' : '') + (x.pinned ? ' <span class="tag grey">choisi à la main</span>' : '');
+    var badge = R.seatBadge(st, x);
+    if (badge) name += ' <span class="tag seat-badge' + (badge.cls ? ' ' + badge.cls : '') + '">' + esc(badge.label) + '</span>';
+    if (x.added && st.frozen) name += ' <small class="muted">· déjà achetée</small>';
     var main = '<div class="seat-main"><span class="seat-name' + (x.occupant === me ? ' me' : '') + '">' + name + '</span>';
     if (ph !== 'terminee' && x.occupant && !x.own) {
       main += '<button class="x-btn" title="Retirer" aria-label="Retirer ' + esc(nameOf(x.occupant)) + '" data-act="ev" data-type="unregister" data-match="' + mid + '" data-member="' + esc(x.occupant) + '" data-confirm="' + esc((ph === 'avant' ? 'Retirer la demande de ' + nameOf(x.occupant) + ' ?' : nameOf(x.occupant) + ' se désiste. ' + releaseWarning(st, x.occupant))) + '">×</button>';
@@ -573,8 +587,11 @@
   }
 
   function sectionWhatsApp(st) {
+    var short = R.shortRecapText(st);
     var recap = R.recapText(st);
-    var html = '<section class="card"><h2>Textes pour WhatsApp</h2>' +
+    var html = '<section class="card"><h2>Texte pour WhatsApp</h2>' +
+      '<textarea class="wa-text wa-short" readonly>' + esc(short) + '</textarea>' + waButtons(short) +
+      '<details class="wa-more"><summary>Récap complet' + (st.replacements.length ? ' et remplacements (' + st.replacements.length + ')' : '') + '</summary>' +
       '<h3>Récap complet</h3><textarea class="wa-text" readonly>' + esc(recap) + '</textarea>' + waButtons(recap);
     if (st.replacements.length) {
       html += '<h3 style="margin-top:16px">Remplacements</h3>';
@@ -584,7 +601,7 @@
           '<textarea class="wa-text wa-small" readonly>' + esc(t) + '</textarea>' + waButtons(t);
       });
     }
-    return html + '</section>';
+    return html + '</details></section>';
   }
 
   function sectionSchedule(st) {
@@ -704,6 +721,7 @@
       if (t.dataset.confirm && !window.confirm(t.dataset.confirm)) return;
       var a = { type: t.dataset.type, matchId: t.dataset.match, memberId: t.dataset.member };
       if (t.dataset.value !== undefined) a.value = t.dataset.value === 'true';
+      if (t.dataset.seat) { a.seatId = t.dataset.seat; a.by = me; }
       send([a], okMessage(a));
     }
   });
@@ -711,7 +729,7 @@
   function okMessage(a) {
     return {
       register: 'Demande de place enregistrée.', unregister: 'C\'est noté.', confirm: 'Merci, c\'est noté.',
-      unconfirm: 'C\'est noté : tes places sont retirées.', setAbsent: a.value ? 'Absence enregistrée.' : 'Bon retour !', move: 'Déplacement enregistré.'
+      unconfirm: 'C\'est noté : tes places sont retirées.', takeSeat: 'Place prise !', setAbsent: a.value ? 'Absence enregistrée.' : 'Bon retour !', move: 'Déplacement enregistré.'
     }[a.type] || 'Enregistré.';
   }
 
@@ -765,6 +783,9 @@
           : { type: 'takeSeat', matchId: mid, memberId: pid, seatId: f.dataset.seat, by: me });
       var shown = existing ? existing.name : name;
       send(acts, kind === 'guest' ? shown + ' prend une de tes places.' : kind === 'bought' ? 'Place achetée ajoutée pour ' + shown + '.' : shown + ' prend la place.');
+    } else if (kind === 'bought-seats') {
+      var n = +fd.get('n');
+      send([{ type: 'addBoughtSeats', matchId: mid, memberId: me, value: String(n), by: me }], (n > 1 ? n + ' places achetées sans nom ajoutées.' : '1 place achetée sans nom ajoutée.'));
     } else if (kind === 'opening') {
       send([{ type: 'setOpening', matchId: mid, value: fd.get('d') + ' ' + fd.get('t') }], 'Heure d\'ouverture enregistrée.');
     } else if (kind === 'schedule') {

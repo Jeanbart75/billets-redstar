@@ -340,25 +340,71 @@
     if (st.confirms[id]) return nameOf(st, id) + ' est abonné et a déjà sa place d\'abonné.';
     var other = seatOf(st, id);
     if (other) return nameOf(st, id) + ' a déjà une place (achetée par ' + nameOf(st, other.subId) + ').';
-    var mine = seatsOfSub(st, host);
+    var err = boughtRoom(st, host, 1);
+    if (err) return err;
+    ensureHost(st, host, ev);
+    var w = st.waitlist.indexOf(id);
+    if (w >= 0) st.waitlist.splice(w, 1);
+    pushBoughtSeat(st, host, id, ev);
+    return null;
+  }
+
+  function boughtCount(st, host) {
+    return seatsOfSub(st, host).filter(function (x) { return !x.season && !x.refunded; }).length;
+  }
+
+  /** Vérifie qu'un abonné peut encore ajouter `n` places achetées (4 au plus pour d'autres). */
+  function boughtRoom(st, host, n) {
     if (!st.confirms[host]) {
       var hostSeat = seatOf(st, host);
       if (hostSeat) return nameOf(st, host) + ' occupe déjà une place chez ' + nameOf(st, hostSeat.subId) + ' : retire-la d\'abord.';
     }
-    var bought = mine.filter(function (x) { return !x.season && !x.refunded; }).length;
-    if (bought >= QUOTA) return 'Au plus ' + QUOTA + ' places achetées pour d\'autres (ta place d\'abonné est en plus).';
-    if (!st.confirms[host]) {
-      st.confirms[host] = { ts: ev.ts, order: ev.order };
-      st.extra[host] = 0;
-      var wh = st.waitlist.indexOf(host);
-      if (wh >= 0) st.waitlist.splice(wh, 1);
-      st.seats.push({ id: host + ':1', subId: host, occupant: host, own: true, season: true, personal: false, since: ev.ts, bought: false, paid: false, refunded: false });
-      mine = seatsOfSub(st, host);
+    var left = QUOTA - boughtCount(st, host);
+    if (n > left) {
+      return left <= 0 ? 'Au plus ' + QUOTA + ' places achetées pour d\'autres (ta place d\'abonné est en plus).'
+        : 'Au plus ' + QUOTA + ' places achetées pour d\'autres : encore ' + left + ' possible' + (left > 1 ? 's' : '') + '.';
     }
-    var w = st.waitlist.indexOf(id);
-    if (w >= 0) st.waitlist.splice(w, 1);
-    st.seats.push({ id: host + ':' + (mine.length + 1), subId: host, occupant: id, own: false, season: false, personal: true, added: true, since: ev.ts, bought: true, paid: false, refunded: false });
-    st.extra[host] = Math.max(st.extra[host] || 0, bought + 1);
+    return null;
+  }
+
+  /** Un abonné sans déclaration qui a acheté des places est compté présent, avec sa place d'abonné. */
+  function ensureHost(st, host, ev) {
+    if (st.confirms[host]) return;
+    st.confirms[host] = { ts: ev.ts, order: ev.order };
+    st.extra[host] = 0;
+    var wh = st.waitlist.indexOf(host);
+    if (wh >= 0) st.waitlist.splice(wh, 1);
+    st.seats.push({ id: host + ':1', subId: host, occupant: host, own: true, season: true, personal: false, since: ev.ts, bought: false, paid: false, refunded: false });
+  }
+
+  function pushBoughtSeat(st, host, occupant, ev) {
+    var seat = {
+      id: host + ':' + (seatsOfSub(st, host).length + 1), subId: host, occupant: occupant, own: false, season: false,
+      personal: !!occupant, added: true, since: ev.ts, bought: true, paid: false, refunded: false
+    };
+    st.seats.push(seat);
+    st.extra[host] = Math.max(st.extra[host] || 0, boughtCount(st, host));
+    return seat;
+  }
+
+  /**
+   * Places déjà achetées sans nom : cochées « Acheté » au nom de l'abonné. Elles vont d'abord
+   * à la liste d'attente, dans l'ordre ; les autres restent libres et n'importe qui peut les prendre.
+   */
+  function addBoughtSeats(st, ev) {
+    var host = ev.memberId;
+    if (!isSub(st, host)) return 'Seul un abonné déclare des places achetées.';
+    var n = parseInt(ev.value, 10);
+    if (!(n >= 1 && n <= QUOTA) || String(n) !== String(ev.value).trim()) return 'Nombre de places invalide (1 à ' + QUOTA + ').';
+    var err = boughtRoom(st, host, n);
+    if (err) return err;
+    ensureHost(st, host, ev);
+    for (var i = 0; i < n; i++) {
+      var next = st.waitlist.length ? st.waitlist.shift() : null;
+      var seat = pushBoughtSeat(st, host, next, ev);
+      seat.personal = false;
+      if (next) st.replacements.push({ ts: ev.ts, seatId: seat.id, subId: host, fromId: null, toId: next, bought: true, season: false, fromPaid: false, reason: 'place-achetee' });
+    }
     return null;
   }
 
@@ -472,7 +518,7 @@
 
       case 'takeSeat': case 'setBought': case 'setPaid': case 'setRefunded':
         return 'Possible seulement après l\'ouverture de la billetterie.';
-      case 'addBought':
+      case 'addBought': case 'addBoughtSeats':
         return 'Avant l\'ouverture, déclare tes places avec « Présent ? » et « Places dispo en plus ».';
     }
     return 'Action inconnue.';
@@ -494,6 +540,9 @@
 
       case 'addBought':
         return addBought(st, ev);
+
+      case 'addBoughtSeats':
+        return addBoughtSeats(st, ev);
 
       case 'declare': {
         var d = parseDeclaration(ev.value);
@@ -791,11 +840,71 @@
     return lines.join('\n');
   }
 
+  function plural(n, word) { return n + ' ' + word + (n > 1 ? 's' : ''); }
+
+  /**
+   * Badge d'une place sur la liste d'un abonné, après l'ouverture : { cls: '' (vert) | 'amber' | 'red' | 'grey', label }.
+   * null pour la place de l'abonné lui-même, une place libre non remboursée, ou avant l'ouverture.
+   */
+  function seatBadge(st, seat) {
+    if (!st.frozen) return null;
+    if (seat.refunded) return { cls: 'grey', label: 'Remboursé' };
+    if (seat.season) return seat.occupant && seat.occupant !== seat.subId ? { cls: 'grey', label: 'Place prêtée' } : null;
+    if (!seat.occupant) return null;
+    if (seat.paid) return { cls: '', label: 'Payé' };
+    if (seat.bought) return { cls: 'amber', label: 'Acheté mais non remboursé' };
+    return { cls: 'red', label: 'Non acheté' };
+  }
+
+  /** Pastille « ma situation » sur un match : { cls: 'ok' | 'wait' | '', label }. */
+  function statusChip(st, id) {
+    var s = personStatus(st, id);
+    if (s.kind === 'own') {
+      var mine = st.frozen ? seatsOfSub(st, id).filter(function (x) { return !x.season && !x.refunded; }) : [];
+      if (mine.length && mine.every(function (x) { return x.bought; })) return { cls: 'ok', label: 'Présent : tu as acheté ' + plural(mine.length, 'place') };
+      return { cls: 'ok', label: 'Présent · ' + (s.extra ? 'tu achètes ' + plural(s.extra, 'place') : 'rien à acheter') };
+    }
+    if (s.kind === 'seat' && s.season) return { cls: 'ok', label: 'Ta place : place d\'abonné de ' + nameOf(st, s.subId) + ' (gratuite)' };
+    if (s.kind === 'seat') {
+      return st.frozen && s.seat.bought
+        ? { cls: 'ok', label: 'Présent, tu as acheté 1 place à ' + nameOf(st, s.subId) }
+        : { cls: 'ok', label: 'Ta place sera achetée par ' + nameOf(st, s.subId) };
+    }
+    if (s.kind === 'wait') return { cls: 'wait', label: 'En attente (n° ' + s.waitPos + ')' };
+    if (s.kind === 'absent') return { cls: '', label: 'Absent · ' + (s.extra ? 'tu achètes ' + plural(s.extra, 'place') : 'rien à acheter') };
+    if (s.isSub && !st.frozen) return { cls: 'wait', label: 'Places à déclarer' };
+    return { cls: '', label: 'Pas de place demandée' };
+  }
+
+  /** Résumé court pour WhatsApp : l'essentiel, le détail est sur la page du match. */
+  function shortRecapText(st) {
+    var c = counters(st);
+    var lines = [matchTitle(st.match)];
+    if (st.closed) {
+      lines.push('Billetterie fermée.');
+    } else if (!st.frozen) {
+      lines.push(st.match.opening ? 'Ouverture billetterie : ' + formatOpeningFr(st.match.opening) : 'Ouverture billetterie : pas encore connue');
+      lines.push(c.capacity ? c.remaining + ' place' + (c.remaining > 1 ? 's' : '') + ' restante' + (c.remaining > 1 ? 's' : '') + ' sur ' + c.capacity + (c.waiting ? ', ' + c.waiting + ' en attente' : '') + '.'
+        : 'Pas encore de place déclarée par les abonnés.');
+    } else {
+      lines.push('Billetterie ouverte : ' + c.taken + ' places, ' + (c.free ? c.free + ' libre' + (c.free > 1 ? 's' : '') : 'aucune libre') + (c.waiting ? ', ' + c.waiting + ' en attente' : '') + '. Achetées : ' + c.bought + '/' + c.seats + '.');
+      var bySub = {};
+      freeSeats(st).forEach(function (x) { bySub[x.subId] = (bySub[x.subId] || 0) + 1; });
+      var free = Object.keys(bySub).map(function (s) { return bySub[s] + ' chez ' + nameOf(st, s); });
+      if (free.length) lines.push('Places libres : ' + free.join(', ') + ' : à prendre sur l\'appli.');
+    }
+    lines.push('Qui achète pour qui : sur l\'appli. ' + PRICE + ' € la place achetée.');
+    return lines.join('\n');
+  }
+
   function replacementText(st, r) {
     var buyer = nameOf(st, r.subId);
     var title = 'Red Star - ' + st.match.opponent + ' (' + formatDateFr(st.match.date) + ')';
     var parts = [];
     if (r.season) return seasonReplacementText(st, r, title);
+    if (r.reason === 'place-achetee') {
+      return title + ' : ' + buyer + ' a acheté une place de plus, ' + nameOf(st, r.toId) + ' (liste d\'attente) la prend et doit ' + PRICE + ' € à ' + buyer + payLinkText(st, r.subId) + '.';
+    }
     if (r.reason === 'retour-abonne') {
       parts.push(title + ' : ' + buyer + ' vient finalement et reprend sa place. ' + nameOf(st, r.fromId) + ' repasse en tête de liste d\'attente et ne doit plus rien.');
       if (r.fromPaid) parts.push(buyer + ' rembourse ' + PRICE + ' € à ' + nameOf(st, r.fromId) + '.');
@@ -858,7 +967,7 @@
     phase: phase, lists: lists, counters: counters, waitlistOf: waitlistOf, freeSeats: freeSeats,
     personStatus: personStatus, allBought: allBought, debts: debts, confirmedSubs: confirmedSubs,
     recapText: recapText, replacementText: replacementText, matchTitle: matchTitle,
-    parseDeclaration: parseDeclaration, seatsDeclared: seatsDeclared, formatOpeningShort: formatOpeningShort, statusLabel: statusLabel, matchLocked: matchLocked,
+    parseDeclaration: parseDeclaration, seatsDeclared: seatsDeclared, formatOpeningShort: formatOpeningShort, statusLabel: statusLabel, matchLocked: matchLocked, shortRecapText: shortRecapText, boughtCount: boughtCount, statusChip: statusChip, seatBadge: seatBadge,
     PRESENCE_TYPES: Object.keys(PRESENCE_TYPES), PRESENCE_MSG: PRESENCE_MSG
   };
 });

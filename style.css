@@ -90,6 +90,7 @@ label.field { display: block; font-size: .88rem; color: var(--muted); margin: 8p
 .tag.amber { background: var(--amber-soft); color: var(--amber); }
 .tag.grey { background: #eef0ee; color: var(--muted); }
 .tag.status { text-transform: none; letter-spacing: 0; font-size: .8rem; padding: 3px 9px; white-space: nowrap; }
+.tag.seat-badge { text-transform: none; letter-spacing: 0; font-size: .75rem; }
 
 /* Déclaration abonné */
 .declare { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
@@ -159,6 +160,10 @@ details[open] > summary { margin-bottom: 8px; }
 
 .wa-text { width: 100%; min-height: 150px; font: .85rem/1.4 ui-monospace, Menlo, Consolas, monospace; border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: #fafbfa; resize: vertical; white-space: pre-wrap; }
 .wa-small { min-height: 80px; }
+.wa-short { min-height: 160px; }
+.wa-more { margin-top: 14px; }
+.wa-more > summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
+.bought-box select { min-width: 72px; }
 .btn-wa { background: #25d366; border-color: #25d366; color: #fff; }
 
 /* Dettes et listes */
