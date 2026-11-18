@@ -321,7 +321,6 @@
   }
 
   var PRE_ONLY_MSG = {
-    register: 'La billetterie est ouverte : plus de nouvelle demande. Prends une place libre s\'il y en a.',
     confirm: 'La billetterie est ouverte : la liste des acheteurs est figée.',
     unconfirm: 'La billetterie est ouverte : la liste des acheteurs est figée.',
     move: 'La billetterie est ouverte : les déplacements sont arrêtés.',
@@ -528,6 +527,17 @@
     var id = ev.memberId, seat;
     if (PRE_ONLY_MSG[ev.type]) return PRE_ONLY_MSG[ev.type];
     switch (ev.type) {
+      case 'register': {
+        if (!st.members[id]) return 'Personne inconnue.';
+        if (st.confirms[id]) return nameOf(st, id) + ' a déjà déclaré ses places' + (st.absent[id] ? ' : « Finalement je viens » pour reprendre ta place.' : '.');
+        if (seatOf(st, id)) return nameOf(st, id) + ' a déjà une place.';
+        if (st.waitlist.indexOf(id) >= 0) return nameOf(st, id) + ' est déjà en liste d\'attente.';
+        var free = freeSeats(st)[0];
+        if (free) return applyPost(st, { type: 'takeSeat', memberId: id, seatId: free.id, ts: ev.ts, order: ev.order });
+        st.waitlist.push(id);
+        return null;
+      }
+
       case 'unregister': {
         var w = st.waitlist.indexOf(id);
         if (w >= 0) { st.waitlist.splice(w, 1); return null; }

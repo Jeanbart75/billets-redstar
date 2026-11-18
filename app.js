@@ -317,7 +317,7 @@
     if (ph === 'avant') {
       var op = m.opening ? R.openingMs(m) : null;
       html += m.opening
-        ? '<div class="notice warn"><b>Ouverture de la billetterie : ' + esc(R.formatOpeningFr(m.opening)) + '</b> (' + relTime(op) + '). À cette heure-là, la liste se fige : plus de nouvelle demande, chaque abonné achète les places de sa liste.</div>'
+        ? '<div class="notice warn"><b>Ouverture de la billetterie : ' + esc(R.formatOpeningFr(m.opening)) + '</b> (' + relTime(op) + '). À cette heure-là, la liste se fige : chaque abonné achète les places de sa liste ; une nouvelle demande passe en liste d\'attente.</div>'
         : '<div class="notice info">Heure d\'ouverture de la billetterie pas encore connue. Demandes libres, la répartition se recalcule en continu.</div>';
       html += openingForm(m);
     } else if (ph === 'ouverte') {
@@ -463,6 +463,9 @@
         lines.push('Il reste ' + (R.freeSeats(st).length > 1 ? 'des places libres' : 'une place libre') + ' : prends-en une, tu paieras ' + R.PRICE + ' € à l\'abonné qui l\'a achetée' + (R.freeSeats(st).some(function (x) { return x.season; }) ? ' (une place d\'abonné prêtée est gratuite)' : '') + '.');
       } else if (R.freeSeats(st).length) {
         lines.push('Il reste une place libre : on peut la prendre plus bas.');
+      } else if (!s.isSub) {
+        lines.push('Plus de place libre pour l\'instant : demande-la, tu passes en liste d\'attente et tu récupères la prochaine place ajoutée ou libérée.');
+        btns.push(btn('btn-primary', 'register', 'Je veux une place'));
       }
     }
     return '<section class="card"><h2>Moi, ' + esc(nameOf(me)) + (s.isSub ? ' <span class="tag">abonné</span>' : '') + '</h2>' +
@@ -503,7 +506,6 @@
     else name = esc(nameOf(x.occupant)) + (x.own ? ' <small>(place d\'abonné)</small>' : x.season && !st.frozen ? ' <span class="tag grey">place d\'abonné prêtée, gratuite</span>' : '') + (x.personal && !x.added ? ' <span class="tag">son invité</span>' : '') + (x.pinned ? ' <span class="tag grey">choisi à la main</span>' : '');
     var badge = R.seatBadge(st, x);
     if (badge) name += ' <span class="tag seat-badge' + (badge.cls ? ' ' + badge.cls : '') + '">' + esc(badge.label) + '</span>';
-    if (x.added && st.frozen) name += ' <small class="muted">· déjà achetée</small>';
     var main = '<div class="seat-main"><span class="seat-name' + (x.occupant === me ? ' me' : '') + '">' + name + '</span>';
     if (ph !== 'terminee' && x.occupant && !x.own) {
       main += '<button class="x-btn" title="Retirer" aria-label="Retirer ' + esc(nameOf(x.occupant)) + '" data-act="ev" data-type="unregister" data-match="' + mid + '" data-member="' + esc(x.occupant) + '" data-confirm="' + esc((ph === 'avant' ? 'Retirer la demande de ' + nameOf(x.occupant) + ' ?' : nameOf(x.occupant) + ' se désiste. ' + releaseWarning(st, x.occupant))) + '">×</button>';
