@@ -208,7 +208,7 @@
   function viewPicker() {
     return '<section class="card">' +
       '<h2>Qui es-tu ?</h2>' +
-      '<p>Tape ton prénom puis touche ton nom. Ce téléphone s\'en souviendra.</p>' +
+      '<p>Non abonné :renseigne ton prénom de clébard</p>' +
       '<input id="pick-q" type="search" placeholder="Ton prénom" autocomplete="off" data-input="pick">' +
       '<ul id="pick-list" class="pick-list"></ul>' +
       '<div id="pick-add"></div>' +
