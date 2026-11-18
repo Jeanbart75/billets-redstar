@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a7a3d">
+  <title>Red Star · Billets pour les clebards</title>
+  <link rel="icon" type="image/webp" href="logo-redstar.webp">
+  <link rel="apple-touch-icon" href="logo-redstar.webp">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#/">
+      <img class="logo" src="logo-redstar.webp" alt="Logo du Red Star FC" width="40" height="40">
+      <span>Red Star<small>Billets pour les clebards</small></span>
+    </a>
+    <button class="icon-btn" data-act="refresh" aria-label="Actualiser" title="Actualiser">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.65 6.35A8 8 0 1 0 19.73 14h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z"/></svg>
+    </button>
+  </header>
+  <div id="demo-banner" class="demo-banner" hidden></div>
+  <main id="app" aria-live="polite">
+    <p class="loading">Chargement…</p>
+  </main>
+  <nav id="tabs" class="tabs" hidden>
+    <a href="#/" data-tab="home">Matchs</a>
+    <a href="#/liste" data-tab="liste">Ma liste</a>
+    <a href="#/dettes" data-tab="dettes">Mes dettes</a>
+    <a href="#/moi" data-tab="moi">Moi</a>
+  </nav>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script src="config.js"></script>
+  <script src="rules.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
