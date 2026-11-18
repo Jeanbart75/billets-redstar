@@ -190,7 +190,7 @@
       a.classList.toggle('active', a.dataset.tab === (r.name === 'm' ? 'home' : r.name));
     });
     if (!me) $app.innerHTML = viewPicker();
-    else if (r.name === 'm' && match(r.id)) $app.innerHTML = viewMatch(match(r.id));
+    else if (r.name === 'm' && match(r.id)) $app.innerHTML = R.matchLocked(stateOf(match(r.id))) ? viewLocked(match(r.id)) : viewMatch(match(r.id));
     else if (r.name === 'liste') $app.innerHTML = viewMyList();
     else if (r.name === 'dettes') $app.innerHTML = viewDebts();
     else if (r.name === 'moi') $app.innerHTML = viewMe();
@@ -259,6 +259,13 @@
 
   function matchCard(m) {
     var st = stateOf(m);
+    if (R.matchLocked(st)) {
+      return '<div class="card match-card locked" aria-disabled="true">' +
+        '<div class="mc-top"><div><div class="mc-opp">Red Star – ' + esc(m.opponent) + '</div>' +
+        '<div class="mc-when">' + esc(R.formatMatchWhen(m)) + (m.competition && m.competition !== 'Ligue 2' ? ' · ' + esc(m.competition) : '') + '</div></div>' +
+        phaseBadge(st) + '</div>' +
+        '<div class="mc-bottom"><span class="muted">Ouvert dès que l\'heure d\'ouverture de la billetterie sera connue.</span></div></div>';
+    }
     var c = R.counters(st);
     var pct = c.capacity ? Math.min(100, Math.round(100 * c.taken / c.capacity)) : 0;
     return '<a class="card match-card" href="#/m/' + encodeURIComponent(m.id) + '">' +
@@ -318,20 +325,32 @@
       html += m.opening
         ? '<div class="notice warn"><b>Ouverture de la billetterie : ' + esc(R.formatOpeningFr(m.opening)) + '</b> (' + relTime(op) + '). À cette heure-là, la liste se fige : plus de nouvelle demande, chaque abonné achète les places de sa liste.</div>'
         : '<div class="notice info">Heure d\'ouverture de la billetterie pas encore connue. Demandes libres, la répartition se recalcule en continu.</div>';
-      var p = (m.opening || '').split(' ');
-      html += '<details><summary>' + (m.opening ? 'Modifier' : 'Saisir') + ' l\'heure d\'ouverture de la billetterie</summary>' +
-        '<form data-form="opening" data-match="' + esc(m.id) + '"><div class="grid-2">' +
-        '<div><label class="field">Jour</label><input type="date" name="d" required value="' + esc(p[0] || '') + '"></div>' +
-        '<div><label class="field">Heure</label><input type="time" name="t" required value="' + esc(p[1] || '12:00') + '"></div></div>' +
-        '<p class="muted">S\'applique dès l\'enregistrement. Une heure déjà passée ouvre la billetterie tout de suite.</p>' +
-        '<div class="btn-row"><button class="btn-primary" type="submit">Enregistrer</button>' +
-        (m.opening ? '<button type="button" data-act="clear-opening" data-match="' + esc(m.id) + '">Effacer</button>' : '') + '</div></form></details>';
+      html += openingForm(m);
     } else if (ph === 'ouverte') {
       html += '<div class="notice alert"><b>Billetterie ouverte</b> depuis ' + esc(R.formatOpeningFr(m.opening) || 'le coup d\'envoi') + ' : liste figée. Chaque abonné achète les places de sa liste sur le site du club et coche « Acheté ». Un désistement est remplacé automatiquement par la liste d\'attente.</div>';
     } else {
       html += '<div class="notice info">Billetterie fermée : match commencé, lecture seule. On peut encore cocher « Payé ».</div>';
     }
     return html + '</section>';
+  }
+
+  function openingForm(m) {
+    var p = (m.opening || '').split(' ');
+    return '<details><summary>' + (m.opening ? 'Modifier' : 'Saisir') + ' l\'heure d\'ouverture de la billetterie</summary>' +
+      '<form data-form="opening" data-match="' + esc(m.id) + '"><div class="grid-2">' +
+      '<div><label class="field">Jour</label><input type="date" name="d" required value="' + esc(p[0] || '') + '"></div>' +
+      '<div><label class="field">Heure</label><input type="time" name="t" required value="' + esc(p[1] || '12:00') + '"></div></div>' +
+      '<p class="muted">S\'applique dès l\'enregistrement. Une heure déjà passée ouvre la billetterie tout de suite.</p>' +
+      '<div class="btn-row"><button class="btn-primary" type="submit">Enregistrer</button>' +
+      (m.opening ? '<button type="button" data-act="clear-opening" data-match="' + esc(m.id) + '">Effacer</button>' : '') + '</div></form></details>';
+  }
+
+  function viewLocked(m) {
+    return '<a class="back" href="#/">← Tous les matchs</a>' +
+      '<section class="card hero"><div class="mc-top"><h1>Red Star – ' + esc(m.opponent) + '</h1>' + phaseBadge(stateOf(m)) + '</div>' +
+      '<p class="mc-when">' + esc(R.formatDateFr(m.date, true)) + ' · ' + (R.normalizeTime(m.time) ? esc(R.formatTimeFr(m.time)) : 'heure à confirmer') + ' · ' + esc(R.STADIUM) + '</p>' +
+      '<div class="notice info locked-msg">Ce match n\'est pas encore ouvert : l\'heure d\'ouverture de la billetterie n\'est pas connue. La page du match s\'ouvrira dès qu\'elle sera saisie.</div>' +
+      openingForm(m) + '</section>';
   }
 
   function myLine(st, s) {
@@ -813,6 +832,10 @@
         return null;
       }
       if (started && a.type !== 'setPaid') return 'Match commencé : lecture seule.';
+      if (R.PRESENCE_TYPES.indexOf(a.type) >= 0) {
+        var who = db.members.find(function (x) { return x.id === a.memberId; });
+        if (!who || who.type !== 'abonne') return R.PRESENCE_MSG;
+      }
       db.seq += 1;
       db.events.push({ seq: db.seq, ts: t, matchId: m.id, type: a.type, memberId: a.memberId || '', by: a.by || '', target: a.target || '', seatId: a.seatId || '', value: a.value === undefined ? '' : String(a.value) });
       return null;
@@ -892,6 +915,7 @@
     // Annecy : peu de places déclarées, déjà pleines (une nouvelle demande va en liste d'attente).
     step = 0;
     t0 = t - 86400000;
+    matches[2].opening = parisLocal(t + 20 * 86400000).slice(0, 10) + ' 10:00';
     ev('m03', at(), 'declare', 'a1', { value: '1:1' });
     ev('m03', at(), 'declare', 'a2', { value: '1:1' });
     ev('m03', at(), 'register', 'g1');

@@ -585,9 +585,14 @@
     return null;
   }
 
+  /** Actions qui disent si un abonné vient ou non : réservées aux abonnés. */
+  var PRESENCE_TYPES = { declare: 1, confirm: 1, unconfirm: 1, setAbsent: 1 };
+  var PRESENCE_MSG = 'Seul un abonné indique s\'il sera présent ou non.';
+
   function applyEvent(st, ev) {
     var err;
     if (ev.memberId && !st.members[ev.memberId]) err = 'Personne inconnue.';
+    else if (PRESENCE_TYPES[ev.type] && !isSub(st, ev.memberId)) err = PRESENCE_MSG;
     else if (st.closed && ev.type !== 'setPaid') err = 'Match commencé : lecture seule.';
     else err = st.frozen ? applyPost(st, ev) : applyPre(st, ev);
     if (err) st.rejected.push({ event: ev, error: err });
@@ -831,6 +836,11 @@
     return (+m[3]) + ' ' + MONTHS_SHORT[+m[2] - 1] + ' ' + (+m[4]) + 'h' + (m[5] === '00' ? '' : m[5]);
   }
 
+  /** Match sans heure d'ouverture (pas encore commencé) : carte désactivée, page fermée. */
+  function matchLocked(st) {
+    return statusLabel(st).key === 'inconnue';
+  }
+
   /** Statut affiché sur la carte d'un match. */
   function statusLabel(st) {
     if (st.closed) return { key: 'fermee', label: 'Billetterie fermée' };
@@ -848,6 +858,7 @@
     phase: phase, lists: lists, counters: counters, waitlistOf: waitlistOf, freeSeats: freeSeats,
     personStatus: personStatus, allBought: allBought, debts: debts, confirmedSubs: confirmedSubs,
     recapText: recapText, replacementText: replacementText, matchTitle: matchTitle,
-    parseDeclaration: parseDeclaration, seatsDeclared: seatsDeclared, formatOpeningShort: formatOpeningShort, statusLabel: statusLabel
+    parseDeclaration: parseDeclaration, seatsDeclared: seatsDeclared, formatOpeningShort: formatOpeningShort, statusLabel: statusLabel, matchLocked: matchLocked,
+    PRESENCE_TYPES: Object.keys(PRESENCE_TYPES), PRESENCE_MSG: PRESENCE_MSG
   };
 });

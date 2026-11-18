@@ -109,6 +109,8 @@ label.field { display: block; font-size: .88rem; color: var(--muted); margin: 8p
 
 /* Liste des matchs */
 .match-card { display: block; text-decoration: none; color: inherit; }
+.match-card.locked { opacity: .55; cursor: not-allowed; box-shadow: none; }
+.match-card.locked .mc-opp { color: var(--muted, #667); }
 .mc-top { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
 .mc-opp { font-weight: 700; font-size: 1.08rem; }
 .mc-when { color: var(--muted); font-size: .92rem; }
