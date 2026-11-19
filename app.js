@@ -823,6 +823,7 @@
   // ---------- Mode démo (sans serveur) ----------
 
   function demoBackend() {
+    var MATCH_EVENT_TYPES = ['register', 'unregister', 'declare', 'addGuest', 'addBought', 'addBoughtSeats', 'confirm', 'unconfirm', 'setAbsent', 'move', 'takeSeat', 'setBought', 'setPaid', 'setRefunded'];
     function read() {
       try { return JSON.parse(localStorage.getItem(KEY_DEMO_DB)); } catch (e) { return null; }
     }
@@ -841,7 +842,7 @@
       if (a.type === 'setPayLink') {
         var mm = db.members.find(function (x) { return x.id === a.memberId; });
         if (!mm) return 'Personne inconnue.';
-        mm.payLink = String(a.value || '').trim();
+        mm.payLink = String(a.value || '').trim().slice(0, 300);
         return null;
       }
       if (a.type === 'addMatch') {
@@ -854,6 +855,8 @@
       var started = t >= R.kickoffMs(m);
       if (a.type === 'setSchedule') {
         if (started) return 'Match commencé : lecture seule.';
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(a.date || ''))) return 'Date invalide.';
+        if (a.time && !R.normalizeTime(a.time)) return 'Heure invalide.';
         m.date = a.date; m.time = R.normalizeTime(a.time);
         return null;
       }
@@ -867,11 +870,17 @@
         m.opening = ms < t ? parisLocal(t + 60000) : a.value;
         return null;
       }
+      if (MATCH_EVENT_TYPES.indexOf(a.type) < 0) return 'Action inconnue : ' + a.type;
       if (started && a.type !== 'setPaid') return 'Match commencé : lecture seule.';
       if (R.PRESENCE_TYPES.indexOf(a.type) >= 0) {
         var who = db.members.find(function (x) { return x.id === a.memberId; });
         if (!who || who.type !== 'abonne') return R.PRESENCE_MSG;
       }
+      if (a.type === 'addBoughtSeats') {
+        if (!db.members.some(function (x) { return x.id === a.memberId; })) return 'Personne inconnue.';
+        if (!/^[1-4]$/.test(String(a.value))) return 'Nombre de places invalide (1 à 4).';
+      }
+      if (a.type === 'declare' && !/^[01]:[0-4]$/.test(String(a.value))) return 'Au plus 4 places achetées pour d\'autres (ta place d\'abonné est en plus).';
       db.seq += 1;
       db.events.push({ seq: db.seq, ts: t, matchId: m.id, type: a.type, memberId: a.memberId || '', by: a.by || '', target: a.target || '', seatId: a.seatId || '', value: a.value === undefined ? '' : String(a.value) });
       return null;
