@@ -362,6 +362,7 @@
       return 'Ta place : la place d\'abonné de <b>' + esc(nameOf(s.subId)) + '</b>, qui ne vient pas. Rien à acheter : <b>tu ne dois rien</b>.' +
         (st.frozen ? '' : ' (Prévu : peut encore changer jusqu\'à l\'ouverture.)');
     }
+    if (s.kind === 'seat' && s.self) return 'Tu viens sur une des places que tu proposes : tu ne dois rien.';
     if (s.kind === 'seat') {
       return (st.frozen && s.seat.bought ? 'Ta place a été achetée par <b>' : 'Ta place sera achetée par <b>') + esc(nameOf(s.subId)) + '</b>' + (s.personal ? ' (tu es son invité)' : s.pinned ? ' (choisi à la main)' : '') +
         '. Tu lui dois ' + R.PRICE + '&nbsp;€' + (st.frozen ? (s.seat.paid ? ' : <b>payé</b>.' : '.') : ' (prévu : l\'acheteur peut encore changer jusqu\'à l\'ouverture).');
@@ -425,6 +426,19 @@
       '<button class="btn-primary" type="submit">Ajouter</button></form></div>';
   }
 
+  function offerForm(st) {
+    var left = R.QUOTA - R.boughtCount(st, me);
+    var html = '<div class="guest-box bought-box"><h3>Tu as des places en trop ?</h3>';
+    if (left <= 0) return html + '<p class="muted bought-msg">Tu as déjà proposé tes ' + R.QUOTA + ' places.</p></div>';
+    var nums = '';
+    for (var n = 1; n <= left; n++) nums += '<option value="' + n + '">' + n + '</option>';
+    return html +
+      '<p class="muted bought-msg">Ajoute-les ici : elles iront au 1er en liste d\'attente (qui te devra ' + R.PRICE + ' €), sinon n\'importe qui pourra les prendre. Il te reste ' + plural(left, 'place') + ' sur ' + R.QUOTA + '.</p>' +
+      '<form class="inline-form" data-form="bought-seats" data-match="' + esc(st.match.id) + '">' +
+      '<select name="n" aria-label="Nombre de places en trop">' + nums + '</select>' +
+      '<button class="btn-primary" type="submit">Ajouter</button></form></div>';
+  }
+
   function sectionMe(st, ph) {
     var s = R.personStatus(st, me);
     var mid = esc(st.match.id);
@@ -433,7 +447,7 @@
       return '<button class="' + cls + '" data-act="ev" data-type="' + type + '" data-match="' + mid + '" data-member="' + esc(me) + '"' +
         (value !== undefined ? ' data-value="' + value + '"' : '') + (confirmMsg ? ' data-confirm="' + esc(confirmMsg) + '"' : '') + '>' + label + '</button>';
     };
-    if (s.kind === 'seat' && st.frozen && !s.seat.paid && !s.season) btns.push(payLinkHtml(s.subId, 'Payer ' + R.PRICE + ' € à ' + nameOf(s.subId)));
+    if (s.kind === 'seat' && st.frozen && !s.seat.paid && !s.season && !s.self) btns.push(payLinkHtml(s.subId, 'Payer ' + R.PRICE + ' € à ' + nameOf(s.subId)));
 
     if (ph === 'avant') {
       if (s.isSub) {
@@ -446,6 +460,7 @@
       }
     } else if (ph === 'ouverte') {
       if (s.isSub && (s.confirmed || s.kind === 'none' || s.kind === 'wait')) extraHtml += boughtForm(st);
+      if (!s.isSub) extraHtml += offerForm(st);
       if (s.confirmed) {
         lines.push('<span class="muted">Ta liste est figée depuis l\'ouverture : ' + plural(s.extra, 'place') + ' pour d\'autres. Tu peux encore dire si tu viens.</span>');
         btns.push(s.absent
@@ -556,8 +571,8 @@
     if (!ls.length) html += '<p class="empty">Aucun abonné n\'a encore déclaré de places : pas encore de place.</p>';
     ls.forEach(function (l) {
       var mine = l.subId === me;
-      html += '<div class="buyer"' + (mine ? ' style="border-color:var(--green)"' : '') + '><div class="buyer-head"><strong>' + esc(nameOf(l.subId)) + (mine ? ' (toi)' : '') + ' achète ' + plural(l.purchased, 'place') + '</strong>' +
-        '<span>' + (l.absent ? '<span class="tag amber">absent</span> ' : '') + '<span class="tag grey" title="places achetées / déclarées">' + l.purchased + '/' + l.extra + '</span></span></div>' +
+      html += '<div class="buyer"' + (mine ? ' style="border-color:var(--green)"' : '') + '><div class="buyer-head"><strong>' + esc(nameOf(l.subId)) + (mine ? ' (toi)' : '') + (l.offered ? ' propose ' : ' achète ') + plural(l.purchased, 'place') + '</strong>' +
+        '<span>' + (l.absent ? '<span class="tag amber">absent</span> ' : '') + (l.offered ? '<span class="tag grey">non abonné</span>' : '<span class="tag grey" title="places achetées / déclarées">' + l.purchased + '/' + l.extra + '</span>') + '</span></div>' +
         '<ul class="seats">' + l.seats.map(function (x, i) { return seatRow(st, ph, l, x, i); }).join('') + '</ul>' +
         (!st.frozen && l.holes > 0 ? '<p class="hole">' + l.holes + ' place' + (l.holes > 1 ? 's' : '') + ' dispo</p>' : '') +
         (st.frozen && mine ? '' : '') + '</div>';
@@ -685,12 +700,10 @@
     var html = '<section class="card"><h2>' + esc(m.name) + ' ' + (m.type === 'abonne' ? '<span class="tag">abonné</span>' : '<span class="tag grey">invité</span>') + '</h2>' +
       '<p class="muted">Ce téléphone se souvient de toi. Si ce n\'est pas toi :</p>' +
       '<button data-act="logout">Changer de personne</button></section>';
-    if (m.type === 'abonne') {
-      html += '<section class="card"><h2>Mon lien de paiement</h2>' +
-        '<p class="muted">Lien Lydia ou Wero repris pour tous les matchs : chaque personne de ta liste le voit pour te payer ' + R.PRICE + ' €.</p>' +
-        '<form class="inline-form" data-form="paylink"><input type="text" name="link" inputmode="url" placeholder="https://lydia.me/…" value="' + esc(m.payLink || '') + '">' +
-        '<button class="btn-primary" type="submit">Enregistrer</button></form></section>';
-    }
+    html += '<section class="card"><h2>Mon lien de paiement</h2>' +
+      '<p class="muted">Lien Lydia ou Wero repris pour tous les matchs : ' + (m.type === 'abonne' ? 'chaque personne de ta liste' : 'chaque personne qui prend une des places que tu proposes') + ' le voit pour te payer ' + R.PRICE + ' €.</p>' +
+      '<form class="inline-form" data-form="paylink"><input type="text" name="link" inputmode="url" placeholder="https://lydia.me/…" value="' + esc(m.payLink || '') + '">' +
+      '<button class="btn-primary" type="submit">Enregistrer</button></form></section>';
     html += '<section class="card flat"><h3>Comment ça marche</h3>' +
       '<p>1. Abonnés : sur chaque match, indiquez « Présent ? » et combien de places vous pouvez acheter pour d\'autres (0 à 4 ; votre place d\'abonné est déjà acquise). Absent ? Votre place d\'abonné est prêtée gratuitement au premier en attente. Sans réponse, vos places ne comptent pas. Un abonné peut aussi nommer un invité hors du groupe, qui prend une des places qu\'il achète.</p>' +
       '<p>2. Les autres disent simplement « Je veux une place ». L\'appli choisit qui achète pour qui ; au-delà des places déclarées, c\'est la liste d\'attente.</p>' +
@@ -787,7 +800,7 @@
       send(acts, kind === 'guest' ? shown + ' prend une de tes places.' : kind === 'bought' ? 'Place achetée ajoutée pour ' + shown + '.' : shown + ' prend la place.');
     } else if (kind === 'bought-seats') {
       var n = +fd.get('n');
-      send([{ type: 'addBoughtSeats', matchId: mid, memberId: me, value: String(n), by: me }], (n > 1 ? n + ' places achetées sans nom ajoutées.' : '1 place achetée sans nom ajoutée.'));
+      send([{ type: 'addBoughtSeats', matchId: mid, memberId: me, value: String(n), by: me }], isSub(me) ? (n > 1 ? n + ' places achetées sans nom ajoutées.' : '1 place achetée sans nom ajoutée.') : (n > 1 ? n + ' places proposées.' : '1 place proposée.'));
     } else if (kind === 'opening') {
       send([{ type: 'setOpening', matchId: mid, value: fd.get('d') + ' ' + fd.get('t') }], 'Heure d\'ouverture enregistrée.');
     } else if (kind === 'schedule') {
@@ -827,7 +840,7 @@
       }
       if (a.type === 'setPayLink') {
         var mm = db.members.find(function (x) { return x.id === a.memberId; });
-        if (!mm || mm.type !== 'abonne') return 'Seuls les abonnés renseignent un lien de paiement.';
+        if (!mm) return 'Personne inconnue.';
         mm.payLink = String(a.value || '').trim();
         return null;
       }

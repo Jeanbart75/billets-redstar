@@ -354,6 +354,12 @@
 
   /** Vérifie qu'un abonné peut encore ajouter `n` places achetées (4 au plus pour d'autres). */
   function boughtRoom(st, host, n) {
+    if (!isSub(st, host)) {
+      var leftOffer = QUOTA - boughtCount(st, host);
+      if (n <= leftOffer) return null;
+      return leftOffer <= 0 ? 'Au plus ' + QUOTA + ' places proposées par match.'
+        : 'Au plus ' + QUOTA + ' places proposées par match : encore ' + leftOffer + ' possible' + (leftOffer > 1 ? 's' : '') + '.';
+    }
     if (!st.confirms[host]) {
       var hostSeat = seatOf(st, host);
       if (hostSeat) return nameOf(st, host) + ' occupe déjà une place chez ' + nameOf(st, hostSeat.subId) + ' : retire-la d\'abord.';
@@ -382,22 +388,23 @@
       personal: !!occupant, added: true, since: ev.ts, bought: true, paid: false, refunded: false
     };
     st.seats.push(seat);
-    st.extra[host] = Math.max(st.extra[host] || 0, boughtCount(st, host));
+    if (isSub(st, host)) st.extra[host] = Math.max(st.extra[host] || 0, boughtCount(st, host));
     return seat;
   }
 
   /**
-   * Places déjà achetées sans nom : cochées « Acheté » au nom de l'abonné. Elles vont d'abord
+   * Places déjà achetées sans nom : cochées « Acheté » au nom de l'abonné, ou d'un non-abonné qui a des
+   * places en trop (sans place d'abonné, sa propre demande reste à part). Elles vont d'abord
    * à la liste d'attente, dans l'ordre ; les autres restent libres et n'importe qui peut les prendre.
    */
   function addBoughtSeats(st, ev) {
     var host = ev.memberId;
-    if (!isSub(st, host)) return 'Seul un abonné déclare des places achetées.';
+    if (!st.members[host]) return 'Personne inconnue.';
     var n = parseInt(ev.value, 10);
     if (!(n >= 1 && n <= QUOTA) || String(n) !== String(ev.value).trim()) return 'Nombre de places invalide (1 à ' + QUOTA + ').';
     var err = boughtRoom(st, host, n);
     if (err) return err;
-    ensureHost(st, host, ev);
+    if (isSub(st, host)) ensureHost(st, host, ev);
     for (var i = 0; i < n; i++) {
       var next = st.waitlist.length ? st.waitlist.shift() : null;
       var seat = pushBoughtSeat(st, host, next, ev);
@@ -722,13 +729,24 @@
     return confirmedSubs(st).map(function (s) {
       var seats = seatsOfSub(st, s);
       return { subId: s, absent: !!st.absent[s], extra: st.extra[s] || 0, declared: seats.length, purchased: seats.length - 1, seats: seats, holes: 0 };
-    });
+    }).concat(offerers(st).map(function (s) {
+      var seats = seatsOfSub(st, s);
+      return { subId: s, absent: false, extra: seats.length, declared: seats.length, purchased: seats.length, seats: seats, holes: 0, offered: true };
+    }));
+  }
+
+  /** Non-abonnés qui ont proposé des places en trop, dans l'ordre où ils les ont ajoutées. */
+  function offerers(st) {
+    var out = [];
+    st.seats.forEach(function (x) { if (!st.confirms[x.subId] && out.indexOf(x.subId) < 0) out.push(x.subId); });
+    return out;
   }
 
   function counters(st) {
     var nConf = Object.keys(st.confirms).length;
     var capacity = 0;
     Object.keys(st.confirms).forEach(function (s) { capacity += seatsDeclared(st, s); });
+    if (st.frozen) offerers(st).forEach(function (s) { capacity += seatsOfSub(st, s).length; });
     if (!st.frozen) {
       var taken = 0;
       st.alloc.subs.forEach(function (s) { st.alloc.bySub[s].forEach(function (x) { if (x.memberId) taken++; }); });
@@ -764,7 +782,7 @@
     if (w >= 0) { res.kind = 'wait'; res.waitPos = w + 1; return res; }
     if (st.frozen) {
       var seat = seatOf(st, id);
-      if (seat) { res.kind = seat.subId === id ? 'own' : 'seat'; res.subId = seat.subId; res.seat = seat; res.season = !!seat.season && seat.subId !== id; }
+      if (seat) { res.kind = seat.subId === id && seat.own ? 'own' : 'seat'; res.subId = seat.subId; res.seat = seat; res.season = !!seat.season && seat.subId !== id; res.self = seat.subId === id && !seat.own; }
       else if (res.confirmed && res.absent) res.kind = 'absent';
       return res;
     }
@@ -831,6 +849,7 @@
         return nameOf(st, x.occupant) + (st.frozen && x.bought ? ' [acheté]' : '');
       });
       var head = nameOf(st, l.subId);
+      if (l.offered) { lines.push(head + ' propose ' + names.length + ' : ' + names.join(', ')); return; }
       if (l.absent) head += ' (absent) prête sa place d\'abonné à ' + (seasonSeat && seasonSeat.occupant ? nameOf(st, seasonSeat.occupant) : '(libre)') + ' ;';
       lines.push(head + ' achète ' + names.length + (names.length ? ' : ' + names.join(', ') : '') +
         (!st.frozen && l.holes > 0 ? ' (+' + l.holes + ' dispo)' : ''));
@@ -875,6 +894,7 @@
       return { cls: 'ok', label: 'Présent · ' + (s.extra ? 'tu achètes ' + plural(s.extra, 'place') : 'rien à acheter') };
     }
     if (s.kind === 'seat' && s.season) return { cls: 'ok', label: 'Ta place : place d\'abonné de ' + nameOf(st, s.subId) + ' (gratuite)' };
+    if (s.kind === 'seat' && s.self) return { cls: 'ok', label: 'Présent : une de tes places proposées' };
     if (s.kind === 'seat') {
       return st.frozen && s.seat.bought
         ? { cls: 'ok', label: 'Présent, tu as acheté 1 place à ' + nameOf(st, s.subId) }
@@ -977,7 +997,7 @@
     phase: phase, lists: lists, counters: counters, waitlistOf: waitlistOf, freeSeats: freeSeats,
     personStatus: personStatus, allBought: allBought, debts: debts, confirmedSubs: confirmedSubs,
     recapText: recapText, replacementText: replacementText, matchTitle: matchTitle,
-    parseDeclaration: parseDeclaration, seatsDeclared: seatsDeclared, formatOpeningShort: formatOpeningShort, statusLabel: statusLabel, matchLocked: matchLocked, shortRecapText: shortRecapText, boughtCount: boughtCount, statusChip: statusChip, seatBadge: seatBadge,
+    parseDeclaration: parseDeclaration, seatsDeclared: seatsDeclared, formatOpeningShort: formatOpeningShort, statusLabel: statusLabel, matchLocked: matchLocked, shortRecapText: shortRecapText, boughtCount: boughtCount, statusChip: statusChip, seatBadge: seatBadge, offerers: offerers,
     PRESENCE_TYPES: Object.keys(PRESENCE_TYPES), PRESENCE_MSG: PRESENCE_MSG
   };
 });
